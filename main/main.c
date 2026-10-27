@@ -7,6 +7,7 @@
 #include "driver/spi_master.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h" // Watchdog Timer para prevenção de travamentos
+#include "esp_timer.h"
 
 static const char *TAG = "RFID_RESILIENTE";
 
@@ -270,6 +271,10 @@ void modo_cadastro(uint8_t *str, uint8_t *uid)
 
 void app_main(void)
 {
+    bool active_rele = false;
+
+    int64_t ultimo_tempo = esp_timer_get_time();
+    int64_t intervalo = 5e6; // tempo de acionamento do Rele em us
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -289,7 +294,7 @@ void app_main(void)
     gpio_config_t io_conf = {
         .intr_type = GPIO_INTR_DISABLE, .mode = GPIO_MODE_OUTPUT, .pin_bit_mask = (1ULL << PIN_RELE), .pull_down_en = 0, .pull_up_en = 0};
     gpio_config(&io_conf);
-    gpio_set_level(PIN_RELE, 0);
+    gpio_set_level(PIN_RELE, !active_rele);
 
     spi_bus_config_t buscfg = {
         .miso_io_num = PIN_NUM_MISO, .mosi_io_num = PIN_NUM_MOSI, .sclk_io_num = PIN_NUM_CLK, .quadwp_io_num = -1, .quadhd_io_num = -1, .max_transfer_sz = 32};
@@ -304,6 +309,7 @@ void app_main(void)
     uint8_t str[2];
     uint8_t uid[5];
     uint32_t checagem_hardware_timer = 0;
+    bool autorizado = false;
 
     while (1)
     {
@@ -336,7 +342,7 @@ void app_main(void)
                     modo_cadastro(str, uid);
                     continue;
                 }
-                bool autorizado = false;
+
                 for (int i = 0; i < total_tags; i++)
                 {
                     if (comparar_uid(uid, registered_tags[i]))
@@ -348,18 +354,23 @@ void app_main(void)
                 if (autorizado)
                 {
                     ESP_LOGI(TAG, "🟢 ACESSO PERMITIDO! Acionando relé.");
-                    gpio_set_level(PIN_RELE, 1);
-                    vTaskDelay(pdMS_TO_TICKS(3000));
-                    gpio_set_level(PIN_RELE, 0);
-                    ESP_LOGI(TAG, "🔒 Relé desativado.");
+                    gpio_set_level(PIN_RELE, active_rele);
+                    ultimo_tempo = esp_timer_get_time();
                 }
                 else
                 {
                     ESP_LOGW(TAG, "🔴 ACESSO NEGADO! ID não cadastrado.");
                 }
-                vTaskDelay(pdMS_TO_TICKS(1500));
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(200));
+        if (esp_timer_get_time() - ultimo_tempo >= intervalo && autorizado)
+        {
+            ultimo_tempo = esp_timer_get_time();
+            gpio_set_level(PIN_RELE, !active_rele);
+            ESP_LOGI(TAG, "🔒 Relé desativado. Ligador por %ds", intervalo/1e6);
+            autorizado = false;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
