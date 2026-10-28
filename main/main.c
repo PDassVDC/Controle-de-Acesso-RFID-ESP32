@@ -335,6 +335,7 @@ void app_main(void)
     led_strip_handle_t led_strip = configure_led();
 
     int64_t ultimo_tempo = esp_timer_get_time();
+    int64_t ultimo_tempo_led = esp_timer_get_time();
     int64_t intervalo = 5e6; // tempo de acionamento do Rele em us
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -371,6 +372,7 @@ void app_main(void)
     uint8_t uid[5];
     uint32_t checagem_hardware_timer = 0;
     bool autorizado = false;
+    uint8_t led_count = 0;
 
     while (1)
     {
@@ -422,6 +424,8 @@ void app_main(void)
                         ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 0, 24, 0));
                     }
                     ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+                    vTaskDelay(pdMS_TO_TICKS(1e3));
+                    ESP_ERROR_CHECK(led_strip_clear(led_strip));
                 }
                 else
                 {
@@ -440,11 +444,23 @@ void app_main(void)
         {
             ultimo_tempo = esp_timer_get_time();
             gpio_set_level(PIN_RELE, !active_rele);
-            ESP_LOGI(TAG, "🔒 Relé desativado. Ligador por %ds", intervalo / 1e6);
+            ESP_LOGI(TAG, "🔒 Relé desativado. Ligador por %.0fs", intervalo / 1e6);
             autorizado = false;
-            ESP_ERROR_CHECK(led_strip_clear(led_strip));
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));
+        if (esp_timer_get_time() - ultimo_tempo_led >= 1e5)
+        {
+            ESP_ERROR_CHECK(led_strip_clear(led_strip));
+            ultimo_tempo_led = esp_timer_get_time();
+            ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, led_count % 12, 6, 6, 6));
+            ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, ++led_count % 12, 50, 50, 50));
+            ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, ++led_count % 12, 100, 100, 100));
+            ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+            if (led_count == 255)
+            {
+                led_count = 0;
+            }
+        }
     }
 }
