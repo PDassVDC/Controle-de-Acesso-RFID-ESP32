@@ -8,6 +8,8 @@
 #include "nvs_flash.h"
 #include "esp_task_wdt.h" // Watchdog Timer para prevenção de travamentos
 #include "esp_timer.h"
+#include "led_strip.h"
+#include "esp_err.h"
 
 static const char *TAG = "RFID_RESILIENTE";
 
@@ -15,9 +17,45 @@ static const char *TAG = "RFID_RESILIENTE";
 #define PIN_NUM_MOSI 23
 #define PIN_NUM_CLK 18
 #define PIN_NUM_CS 21
-#define PIN_RELE GPIO_NUM_2
+#define PIN_RELE GPIO_NUM_13
 
 #define MAX_TAGS 30
+
+// Numbers of the LED in the strip
+#define LED_STRIP_LED_COUNT 12
+#define LED_STRIP_MEMORY_BLOCK_WORDS 0 // let the driver choose a proper memory block size automatically
+
+// GPIO assignment
+#define LED_STRIP_GPIO_PIN GPIO_NUM_22
+// 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
+#define LED_STRIP_RMT_RES_HZ (10 * 1000 * 1000)
+
+led_strip_handle_t configure_led(void)
+{
+    // LED strip general initialization, according to your led board design
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = LED_STRIP_GPIO_PIN,                        // The GPIO that connected to the LED strip's data line
+        .max_leds = LED_STRIP_LED_COUNT,                             // The number of LEDs in the strip,
+        .led_model = LED_MODEL_WS2812,                               // LED strip model
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB, // The color order of the strip: GRB
+        .flags = {
+            .invert_out = false, // don't invert the output signal
+        }};
+
+    // LED strip backend configuration: RMT
+    led_strip_rmt_config_t rmt_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,                    // different clock source can lead to different power consumption
+        .resolution_hz = LED_STRIP_RMT_RES_HZ,             // RMT counter clock frequency
+        .mem_block_symbols = LED_STRIP_MEMORY_BLOCK_WORDS, // the memory block size used by the RMT channel
+        .flags = {
+            .with_dma = 0, // Using DMA can improve performance when driving more LEDs
+        }};
+
+    // LED Strip object handle
+    led_strip_handle_t led_strip;
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+    return led_strip;
+}
 
 static spi_device_handle_t spi_handle;
 static uint8_t master_tag[4] = {0};
@@ -209,12 +247,17 @@ bool comparar_uid(uint8_t *a, uint8_t *b)
     return (a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3]);
 }
 
-void modo_cadastro(uint8_t *str, uint8_t *uid)
+void modo_cadastro(uint8_t *str, uint8_t *uid, led_strip_handle_t led_strip)
 {
     ESP_LOGW(TAG, "=====================================================");
     ESP_LOGW(TAG, "🔵 MODO DE CADASTRO ATIVO! Aproxime uma TAG de Usuário.");
     ESP_LOGW(TAG, "=====================================================");
-    vTaskDelay(pdMS_TO_TICKS(1500));
+    for (int i = 0; i < LED_STRIP_LED_COUNT; i++)
+    {
+        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 0, 0, 24));
+    }
+    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+    vTaskDelay(pdMS_TO_TICKS(1e3));
 
     while (1)
     {
@@ -227,7 +270,9 @@ void modo_cadastro(uint8_t *str, uint8_t *uid)
                 if (comparar_uid(uid, master_tag))
                 {
                     ESP_LOGI(TAG, "⚪ Modo Cadastro encerrado.");
-                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    /* Set all LED off to clear all pixels */
+                    ESP_ERROR_CHECK(led_strip_clear(led_strip));
+                    vTaskDelay(pdMS_TO_TICKS(1e3));
                     return;
                 }
 
@@ -249,12 +294,22 @@ void modo_cadastro(uint8_t *str, uint8_t *uid)
                     }
                     total_tags--;
                     ESP_LOGE(TAG, "🔴 TAG REMOVIDA DO SISTEMA: %02X %02X %02X %02X", uid[0], uid[1], uid[2], uid[3]);
+                    for (int i = 0; i < LED_STRIP_LED_COUNT; i++)
+                    {
+                        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 24, 0, 0));
+                    }
+                    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
                 }
                 else if (total_tags < MAX_TAGS)
                 {
                     memcpy(registered_tags[total_tags], uid, 4);
                     total_tags++;
                     ESP_LOGI(TAG, "🟢 NOVA TAG AUTORIZADA COM SUCESSO: %02X %02X %02X %02X", uid[0], uid[1], uid[2], uid[3]);
+                    for (int i = 0; i < LED_STRIP_LED_COUNT; i++)
+                    {
+                        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 0, 24, 0));
+                    }
+                    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
                 }
                 else
                 {
@@ -262,7 +317,12 @@ void modo_cadastro(uint8_t *str, uint8_t *uid)
                 }
 
                 salvar_banco_dados();
-                vTaskDelay(pdMS_TO_TICKS(1500));
+                vTaskDelay(pdMS_TO_TICKS(1e3));
+                for (int i = 0; i < LED_STRIP_LED_COUNT; i++)
+                {
+                    ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 0, 0, 24));
+                }
+                ESP_ERROR_CHECK(led_strip_refresh(led_strip));
             }
         }
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -272,6 +332,7 @@ void modo_cadastro(uint8_t *str, uint8_t *uid)
 void app_main(void)
 {
     bool active_rele = false;
+    led_strip_handle_t led_strip = configure_led();
 
     int64_t ultimo_tempo = esp_timer_get_time();
     int64_t intervalo = 5e6; // tempo de acionamento do Rele em us
@@ -339,7 +400,7 @@ void app_main(void)
 
                 if (comparar_uid(uid, master_tag))
                 {
-                    modo_cadastro(str, uid);
+                    modo_cadastro(str, uid, led_strip);
                     continue;
                 }
 
@@ -356,10 +417,22 @@ void app_main(void)
                     ESP_LOGI(TAG, "🟢 ACESSO PERMITIDO! Acionando relé.");
                     gpio_set_level(PIN_RELE, active_rele);
                     ultimo_tempo = esp_timer_get_time();
+                    for (int i = 0; i < LED_STRIP_LED_COUNT; i++)
+                    {
+                        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 0, 24, 0));
+                    }
+                    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
                 }
                 else
                 {
                     ESP_LOGW(TAG, "🔴 ACESSO NEGADO! ID não cadastrado.");
+                    for (int i = 0; i < LED_STRIP_LED_COUNT; i++)
+                    {
+                        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, 24, 0, 0));
+                    }
+                    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+                    vTaskDelay(pdMS_TO_TICKS(1e3));
+                    ESP_ERROR_CHECK(led_strip_clear(led_strip));
                 }
             }
         }
@@ -367,8 +440,9 @@ void app_main(void)
         {
             ultimo_tempo = esp_timer_get_time();
             gpio_set_level(PIN_RELE, !active_rele);
-            ESP_LOGI(TAG, "🔒 Relé desativado. Ligador por %ds", intervalo/1e6);
+            ESP_LOGI(TAG, "🔒 Relé desativado. Ligador por %ds", intervalo / 1e6);
             autorizado = false;
+            ESP_ERROR_CHECK(led_strip_clear(led_strip));
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));
