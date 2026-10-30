@@ -34,7 +34,9 @@ O leitor RC522 opera estritamente com **3.3V**. Certifique-se de realizar as con
 | **MOSI** | **GPIO 23** | SPI Master Output Slave Input |
 | **SCK** | **GPIO 18** | SPI Serial Clock |
 | **SDA** (CS) | **GPIO 21** | SPI Chip Select |
-| *Sinal do Relé* | **GPIO 2** | Saída digital para controle da tranca |
+| *Sinal do Relé* | **GPIO 13** | Saída digital para controle da tranca |
+| *Botão Mastre* | **GPIO 14** | Saída digital para controle da tranca |
+| *Sinal da Contatora* | **GPIO 27** | Saída digital para controle da tranca |
 
 ---
 
