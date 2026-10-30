@@ -4,6 +4,15 @@ Este projeto implementa um **sistema profissional de controle de acesso automati
 
 O sistema conta com gerenciamento inteligente de memória flash através do componente **NVS (Non-Volatile Storage)**, permitindo cadastrar e remover cartões administrativos e de usuários diretamente por aproximação, sem a necessidade de recomputar o código.
 
+## Diagrama Elétrico
+
+<p align="center">
+  <img src="https://github.com/PDassVDC/Controle-de-Acesso-RFID-ESP32/blob/main/imagens/diagrama_el%C3%A9trico.png" alt="Diagrama Elétrico" />
+</p>
+
+Conforme indicado no esquema elétrico, a fonte de 24V é conectada diretamente à rede para alimentar o circuito de comando. Este circuito é formado por uma botoeira de parada de emergência e uma botoeira do tipo push-button em série com um relé de controle eletrônico, encarregado de comandar o solenoide do contator de 24V. No circuito de potência, encontram-se o disjuntor geral e os contatos do contator conectados à carga, que é o motor elétrico.
+
+
 ## 🚀 Funcionalidades
 
 *   **Comunicação Nativa SPI:** Implementação direta dos registradores do RC522, garantindo total compatibilidade com as mudanças de drivers do ESP-IDF v6.x.
@@ -61,3 +70,8 @@ Ao ligar o circuito pela primeira vez, o banco de dados estará vazio. Aproxime 
    ```
 
 *💡 Para realizar um reset de fábrica e apagar todas as tags (incluindo a Mestra), digite `idf.py erase-flash` no terminal.*
+
+## 🛠️ Desenvolvido Por:
+**Leonardo Romão**,
+**Leonardo Oliveira** e **Eduardo Silva**
+
